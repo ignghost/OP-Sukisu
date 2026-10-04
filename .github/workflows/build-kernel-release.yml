@@ -59,30 +59,26 @@ on:
         options: [Enable, Disable]
         default: Disable
 
-      bbr_override:
-        description: 'BBR: Auto Detect uses the device config; Enable forces BBR on; Disable forces BBR off'
+      bbr_bundle_override:
+        description: 'BBR / BBRv3 / BBG: Enable or Disable all three together'
         required: true
         type: choice
-        options: [Auto Detect, Enable, Disable]
-        default: Auto Detect
-      bbr3_override:
-        description: 'BBRv3: Auto Detect uses the device config; Enable forces BBRv3 on; Disable forces BBRv3 off'
+        options: [Enable, Disable]
+        default: Enable
+
+      kernel_features_override:
+        description: 'DroidSpaces / NetSync / Unicode Fix / IP Set & IPv6_NAT Support: Enable or Disable all together'
         required: true
         type: choice
-        options: [Auto Detect, Enable, Disable]
-        default: Auto Detect
-      bbg_override:
-        description: 'BBG: Auto Detect uses the device config; Enable forces BBG on; Disable forces BBG off'
+        options: [Enable, Disable]
+        default: Enable
+
+      selinux_hide_override:
+        description: 'SukiSU SELinux Hide Implementation: Enable or Disable'
         required: true
         type: choice
-        options: [Auto Detect, Enable, Disable]
-        default: Auto Detect
-      droidspaces_override:
-        description: 'Droidspaces: Auto Detect uses the device config; Enable forces Droidspaces on; Disable forces Droidspaces off'
-        required: true
-        type: choice
-        options: [Auto Detect, Enable, Disable]
-        default: Auto Detect
+        options: [Enable, Disable]
+        default: Enable
       clean_build:
         description: 'Clean build (no ccache)'
         type: boolean
@@ -173,8 +169,17 @@ jobs:
           input="${{ github.event.inputs.op_model }}"
           target_model="${{ github.event.inputs.op_target_model }}"
           ksu_options_raw='${{ github.event.inputs.ksu_options }}'
-          feature_overrides=$(jq -nc             --arg kpm '${{ inputs.kpm_override }}'             --arg bbr '${{ inputs.bbr_override }}'             --arg bbr3 '${{ inputs.bbr3_override }}'             --arg bbg '${{ inputs.bbg_override }}'             --arg ds '${{ inputs.droidspaces_override }}'             'def v: if . == "Auto Detect" then "config" elif . == "Enable" then "enable" elif . == "Disable" then "disable" else . end;
-             {kpm:(if $kpm == "Enable" then "enable" else "disable" end),bbr:($bbr|v),bbr3:($bbr3|v),bbg:($bbg|v),ds:($ds|v)}')
+          feature_overrides=$(jq -nc \
+            --arg kpm '${{ inputs.kpm_override }}' \
+            --arg bbr_bundle '${{ inputs.bbr_bundle_override }}' \
+            --arg kernel_features '${{ inputs.kernel_features_override }}' \
+            --arg selinux_hide '${{ inputs.selinux_hide_override }}' \
+            '{
+              kpm: (if $kpm == "Enable" then "enable" else "disable" end),
+              bbr_bundle: (if $bbr_bundle == "Enable" then "enable" else "disable" end),
+              kernel_features: (if $kernel_features == "Enable" then "enable" else "disable" end),
+              selinux_hide: (if $selinux_hide == "Enable" then "enable" else "disable" end)
+            }')
           echo "Feature overrides: $feature_overrides"
           if ! ksu_options_normalized=$(echo "$ksu_options_raw" | jq -c 'map(if .type then .type |= ascii_upcase | if .hash == null then .hash = "v4.1.3" else . end else error("No type found") end)' 2>&1); then
             echo "::error::ksu_options validation failed: $ksu_options_normalized"
@@ -261,14 +266,14 @@ jobs:
           # "config" preserves configs/*.json; enable/disable forces the state.
           merged_matrix=$(echo "$merged_matrix" | jq --argjson o "$feature_overrides" '
             map(
-              if $o.bbr == "enable" then .bbr = true
-              elif $o.bbr == "disable" then .bbr = false else . end |
-              if $o.bbr3 == "enable" then .bbr3 = true
-              elif $o.bbr3 == "disable" then .bbr3 = false else . end |
-              if $o.bbg == "enable" then .bbg = true
-              elif $o.bbg == "disable" then .bbg = false else . end |
-              if $o.ds == "enable" then .ds = true
-              elif $o.ds == "disable" then .ds = false else . end
+              if $o.bbr_bundle == "enable" then .bbr = true | .bbr3 = true | .bbg = true
+              elif $o.bbr_bundle == "disable" then .bbr = false | .bbr3 = false | .bbg = false
+              else . end |
+              if $o.kernel_features == "enable" then
+                .ds = true | .ntsync = true | .unicode = true | .ip_set = true
+              elif $o.kernel_features == "disable" then
+                .ds = false | .ntsync = false | .unicode = false | .ip_set = false
+              else . end
             )
           ')
 
@@ -551,20 +556,10 @@ jobs:
             echo "| 🧱 NoMount | ✅ All supported devices |"
             echo "| 🛡️ SELinux Modification Hide | ✅ Fix successfully applied · All supported devices |"
             echo "| 🧩 KPM | **${{ inputs.kpm_override }}** |"
-            echo "| 🚀 BBR | **${{ inputs.bbr_override }}** |"
-            echo "| 🚀 BBRv3 | **${{ inputs.bbr3_override }}** |"
-            echo "| 🛡️ BBG | **${{ inputs.bbg_override }}** |"
-            echo "| 💻 Droidspaces | **${{ inputs.droidspaces_override }}** |"
+            echo "| 🚀 BBR / BBRv3 / BBG | **${{ inputs.bbr_bundle_override }}** |"
+            echo "| 🧰 DroidSpaces / NetSync / Unicode Fix / IP Set & IPv6_NAT | **${{ inputs.kernel_features_override }}** |"
+            echo "| 🛡️ SukiSU SELinux Hide Implementation | **${{ inputs.selinux_hide_override }}** |"
             echo ""
-            echo "### 🎛️ Feature Override Guide"
-            echo ""
-            echo "> **Auto Detect:** Uses the feature setting defined in each device's configuration."
-            echo ">"
-            echo "> **Enable:** Forces the feature to be enabled for every selected kernel."
-            echo ">"
-            echo "> **Disable:** Forces the feature to be disabled for every selected kernel."
-            echo ">"
-            echo "> **Recommended:** Use **Auto Detect** unless you specifically want to force the same setting across all selected devices."
             echo "| 🎭 SUSFS spoof uname | ${{ inputs.spoof_uname && '✅' || '❌' }} |"
             echo "| 🕵️ Hide KSU SUSFS Symbols | ${{ inputs.hide_ksu_susfs_symbols && '✅' || '❌' }} |"
             echo ""
@@ -810,7 +805,7 @@ jobs:
           enable_adios: ${{ inputs.enable_adios }}
           clean: ${{ inputs.clean_build }}
           debug: ${{ inputs.debug }}
-          feature_overrides_json: '{"kpm":"${{ inputs.kpm_override }}","bbr":"${{ inputs.bbr_override }}","bbr3":"${{ inputs.bbr3_override }}","bbg":"${{ inputs.bbg_override }}","ds":"${{ inputs.droidspaces_override }}"}'
+          feature_overrides_json: '{"kpm":"${{ inputs.kpm_override }}","bbr_bundle":"${{ inputs.bbr_bundle_override }}","kernel_features":"${{ inputs.kernel_features_override }}","selinux_hide":"${{ inputs.selinux_hide_override }}"}'
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📊 Build statistics
@@ -1315,12 +1310,11 @@ jobs:
           | **Optimization Level** | \`$OPTIMIZE_LEVEL\` |
           | **Clean Build** | $( [ "$CLEAN_BUILD" = "true" ] && echo "✅ Yes (no ccache)" || echo "❌ No (ccache enabled)" ) |
           | **Compiler** | Clang (version varies by device) |
-          | **BBR** | \`${{ inputs.bbr_override }}\` |
-          | **BBRv3** | \`${{ inputs.bbr3_override }}\` |
-          | **BBG** | \`${{ inputs.bbg_override }}\` |
-          | **Droidspaces** | \`${{ inputs.droidspaces_override }}\` |
+          | **BBR / BBRv3 / BBG** | \`${{ inputs.bbr_bundle_override }}\` |
+          | **DroidSpaces / NetSync / Unicode Fix / IP Set & IPv6_NAT** | \`${{ inputs.kernel_features_override }}\` |
+          | **SukiSU SELinux Hide Implementation** | \`${{ inputs.selinux_hide_override }}\` |
 
-          > **Feature override:** `config` keeps each device's config value; `enable`/`disable` forces the selected state for every kernel in this release.
+          > **Feature override:** `Enable` or `Disable` forces the selected grouped features for every kernel in this release.
           
           ### 📌 SUSFS Branch Mapping
           
@@ -1351,10 +1345,9 @@ jobs:
           ### 🎛️ Requested Feature Overrides
           | Feature | Release setting |
           |---------|-----------------|
-          | BBR | \`${{ inputs.bbr_override }}\` |
-          | BBRv3 | \`${{ inputs.bbr3_override }}\` |
-          | BBG | \`${{ inputs.bbg_override }}\` |
-          | Droidspaces | \`${{ inputs.droidspaces_override }}\` |
+          | BBR / BBRv3 / BBG | \`${{ inputs.bbr_bundle_override }}\` |
+          | DroidSpaces / NetSync / Unicode Fix / IP Set & IPv6_NAT | \`${{ inputs.kernel_features_override }}\` |
+          | SukiSU SELinux Hide Implementation | \`${{ inputs.selinux_hide_override }}\` |
           | Hide KSU SUSFS Symbols | ${{ inputs.hide_ksu_susfs_symbols && 'Enabled' || 'Disabled' }} |
 
           ### 🛡️ Security & Privacy
