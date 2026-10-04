@@ -52,7 +52,7 @@ inputs:
     type: boolean
     default: false
   feature_overrides_json:
-    description: 'Optional JSON overrides for KPM, BBR, BBRv3, BBG and Droidspaces. KPM values: enable/disable.'
+    description: 'JSON overrides for grouped KPM, BBR/BBRv3/BBG, DroidSpaces/NetSync/Unicode/IP Set, and SukiSU SELinux Hide feature selections.'
     required: false
     type: string
     default: '{}'
@@ -138,23 +138,53 @@ runs:
           echo "::error::feature_overrides_json must be a JSON object"
           exit 1
         fi
-        for feature in kpm bbr bbr3 bbg ds; do
-          value=$(jq -r --arg f "$feature" '.[$f] // "Auto Detect"' <<< "$overrides")
-          if [ "$feature" = "kpm" ]; then
-            case "$value" in
-              Enable|enable) echo "OP_KPM=true" >> "$GITHUB_ENV" ;;
-              Disable|disable) echo "OP_KPM=false" >> "$GITHUB_ENV" ;;
-              *) echo "::error::Invalid override for 'kpm': '$value'. Expected Enable or Disable."; exit 1 ;;
-            esac
-          else
-            case "$value" in
-              Auto\ Detect|config) ;;
-              Enable|enable) echo "OP_${feature^^}=true" >> "$GITHUB_ENV" ;;
-              Disable|disable) echo "OP_${feature^^}=false" >> "$GITHUB_ENV" ;;
-              *) echo "::error::Invalid override for '$feature': '$value'. Expected Auto Detect, Enable, or Disable."; exit 1 ;;
-            esac
-          fi
-        done
+        kpm=$(jq -r '.kpm // "disable"' <<< "$overrides")
+        bbr_bundle=$(jq -r '.bbr_bundle // "disable"' <<< "$overrides")
+        kernel_features=$(jq -r '.kernel_features // "disable"' <<< "$overrides")
+        selinux_hide=$(jq -r '.selinux_hide // "disable"' <<< "$overrides")
+
+        case "$kpm" in
+          Enable|enable) echo "OP_KPM=true" >> "$GITHUB_ENV" ;;
+          Disable|disable) echo "OP_KPM=false" >> "$GITHUB_ENV" ;;
+          *) echo "::error::Invalid override for 'kpm': '$kpm'. Expected Enable or Disable."; exit 1 ;;
+        esac
+
+        case "$bbr_bundle" in
+          Enable|enable)
+            echo "OP_BBR=true" >> "$GITHUB_ENV"
+            echo "OP_BBR3=true" >> "$GITHUB_ENV"
+            echo "OP_BBG=true" >> "$GITHUB_ENV"
+            ;;
+          Disable|disable)
+            echo "OP_BBR=false" >> "$GITHUB_ENV"
+            echo "OP_BBR3=false" >> "$GITHUB_ENV"
+            echo "OP_BBG=false" >> "$GITHUB_ENV"
+            ;;
+          *) echo "::error::Invalid override for 'bbr_bundle': '$bbr_bundle'. Expected Enable or Disable."; exit 1 ;;
+        esac
+
+        case "$kernel_features" in
+          Enable|enable)
+            echo "OP_DS=true" >> "$GITHUB_ENV"
+            echo "OP_NTSYNC=true" >> "$GITHUB_ENV"
+            echo "OP_UNICODE=true" >> "$GITHUB_ENV"
+            echo "OP_IP_SET=true" >> "$GITHUB_ENV"
+            ;;
+          Disable|disable)
+            echo "OP_DS=false" >> "$GITHUB_ENV"
+            echo "OP_NTSYNC=false" >> "$GITHUB_ENV"
+            echo "OP_UNICODE=false" >> "$GITHUB_ENV"
+            echo "OP_IP_SET=false" >> "$GITHUB_ENV"
+            ;;
+          *) echo "::error::Invalid override for 'kernel_features': '$kernel_features'. Expected Enable or Disable."; exit 1 ;;
+        esac
+
+        case "$selinux_hide" in
+          Enable|enable) echo "OP_SUKISU_SELINUX_HIDE=true" >> "$GITHUB_ENV" ;;
+          Disable|disable) echo "OP_SUKISU_SELINUX_HIDE=false" >> "$GITHUB_ENV" ;;
+          *) echo "::error::Invalid override for 'selinux_hide': '$selinux_hide'. Expected Enable or Disable."; exit 1 ;;
+        esac
+
         echo "Feature overrides: $(jq -c . <<< "$overrides")"
         echo "::endgroup::"
 
@@ -1110,7 +1140,7 @@ runs:
 
     - name: Apply SukiSU SELinux Hide Implementation (OP13R)
       shell: bash
-      if: ${{ inputs.ksu_type == 'SUKISU' }}
+      if: ${{ inputs.ksu_type == 'SUKISU' && env.OP_SUKISU_SELINUX_HIDE == 'true' }}
       env:
         ANDROID_VER_LOCAL: ${{ env.ANDROID_VER }}
         KERNEL_VER_LOCAL: ${{ env.KERNEL_VER }}
