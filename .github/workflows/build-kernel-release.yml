@@ -53,28 +53,28 @@ on:
         default: O2
 
       kpm_override:
-        description: 'KPM: Enable or Disable KPM support'
+        description: 'KPM Support'
         required: true
         type: choice
         options: [Enable, Disable]
         default: Disable
 
       bbr_bundle_override:
-        description: 'BBR / BBRv3 / BBG: Enable or Disable all three together'
+        description: 'BBR / BBRv3 / BBG Support'
         required: true
         type: choice
         options: [Enable, Disable]
         default: Enable
 
       kernel_features_override:
-        description: 'DroidSpaces / NetSync / Unicode Fix / IP Set & IPv6_NAT Support: Enable or Disable all together'
+        description: 'DroidSpaces / NetSync / Unicode Fix / IP Set & IPv6_NAT Support'
         required: true
         type: choice
         options: [Enable, Disable]
         default: Enable
 
       selinux_hide_override:
-        description: 'SukiSU SELinux Hide Implementation: Enable or Disable'
+        description: 'SukiSU SELinux Hide Implementation'
         required: true
         type: choice
         options: [Enable, Disable]
