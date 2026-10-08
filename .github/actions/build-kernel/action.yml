@@ -52,7 +52,7 @@ inputs:
     type: boolean
     default: false
   feature_overrides_json:
-    description: 'JSON overrides for grouped KPM, BBR/BBRv3/BBG, DroidSpaces/NetSync/Unicode/IP Set, and SukiSU SELinux Hide feature selections.'
+    description: 'Optional JSON overrides for KPM, BBR, BBRv3, BBG, Droidspaces, NTSync, Unicode, IP_SET, NoMount and SukiSU SELinux-hide. Values: Enable or Disable.'
     required: false
     type: string
     default: '{}'
@@ -138,53 +138,23 @@ runs:
           echo "::error::feature_overrides_json must be a JSON object"
           exit 1
         fi
-        kpm=$(jq -r '.kpm // "disable"' <<< "$overrides")
-        bbr_bundle=$(jq -r '.bbr_bundle // "disable"' <<< "$overrides")
-        kernel_features=$(jq -r '.kernel_features // "disable"' <<< "$overrides")
-        selinux_hide=$(jq -r '.selinux_hide // "disable"' <<< "$overrides")
-
-        case "$kpm" in
-          Enable|enable) echo "OP_KPM=true" >> "$GITHUB_ENV" ;;
-          Disable|disable) echo "OP_KPM=false" >> "$GITHUB_ENV" ;;
-          *) echo "::error::Invalid override for 'kpm': '$kpm'. Expected Enable or Disable."; exit 1 ;;
-        esac
-
-        case "$bbr_bundle" in
-          Enable|enable)
-            echo "OP_BBR=true" >> "$GITHUB_ENV"
-            echo "OP_BBR3=true" >> "$GITHUB_ENV"
-            echo "OP_BBG=true" >> "$GITHUB_ENV"
-            ;;
-          Disable|disable)
-            echo "OP_BBR=false" >> "$GITHUB_ENV"
-            echo "OP_BBR3=false" >> "$GITHUB_ENV"
-            echo "OP_BBG=false" >> "$GITHUB_ENV"
-            ;;
-          *) echo "::error::Invalid override for 'bbr_bundle': '$bbr_bundle'. Expected Enable or Disable."; exit 1 ;;
-        esac
-
-        case "$kernel_features" in
-          Enable|enable)
-            echo "OP_DS=true" >> "$GITHUB_ENV"
-            echo "OP_NTSYNC=true" >> "$GITHUB_ENV"
-            echo "OP_UNICODE=true" >> "$GITHUB_ENV"
-            echo "OP_IP_SET=true" >> "$GITHUB_ENV"
-            ;;
-          Disable|disable)
-            echo "OP_DS=false" >> "$GITHUB_ENV"
-            echo "OP_NTSYNC=false" >> "$GITHUB_ENV"
-            echo "OP_UNICODE=false" >> "$GITHUB_ENV"
-            echo "OP_IP_SET=false" >> "$GITHUB_ENV"
-            ;;
-          *) echo "::error::Invalid override for 'kernel_features': '$kernel_features'. Expected Enable or Disable."; exit 1 ;;
-        esac
-
-        case "$selinux_hide" in
-          Enable|enable) echo "OP_SUKISU_SELINUX_HIDE=true" >> "$GITHUB_ENV" ;;
-          Disable|disable) echo "OP_SUKISU_SELINUX_HIDE=false" >> "$GITHUB_ENV" ;;
-          *) echo "::error::Invalid override for 'selinux_hide': '$selinux_hide'. Expected Enable or Disable."; exit 1 ;;
-        esac
-
+        for feature in kpm bbr bbr3 bbg ds ntsync unicode ip_set nomount selinux_hide; do
+          value=$(jq -r --arg f "$feature" '.[$f] // "Auto Detect"' <<< "$overrides")
+          if [ "$feature" = "kpm" ]; then
+            case "$value" in
+              Enable|enable) echo "OP_KPM=true" >> "$GITHUB_ENV" ;;
+              Disable|disable) echo "OP_KPM=false" >> "$GITHUB_ENV" ;;
+              *) echo "::error::Invalid override for 'kpm': '$value'. Expected Enable or Disable."; exit 1 ;;
+            esac
+          else
+            case "$value" in
+              Auto\ Detect|config) ;;
+              Enable|enable) echo "OP_${feature^^}=true" >> "$GITHUB_ENV" ;;
+              Disable|disable) echo "OP_${feature^^}=false" >> "$GITHUB_ENV" ;;
+              *) echo "::error::Invalid override for '$feature': '$value'. Expected Auto Detect, Enable, or Disable."; exit 1 ;;
+            esac
+          fi
+        done
         echo "Feature overrides: $(jq -c . <<< "$overrides")"
         echo "::endgroup::"
 
@@ -368,15 +338,10 @@ runs:
           errors+=("Input 'unicode' contains invalid characters. Allowed: 'true' or 'false'. Got: '$unicode'")
         fi
         
-        # OP_C_COMPILER currently has no checks!
         
-        # OP_RUST_COMPILER currently has no checks!
         
-        # OP_ZYC_COMPILER currently has no checks!
         
-        # OP_BINDGEN currently has no checks!
         
-        # OP_BLACKLIST_MODULES currently has no checks!
         
         if [[ -z "$ds" ]]; then
           errors+=("Input 'ds' cannot be empty")
@@ -455,7 +420,6 @@ runs:
         mkdir -p "$ARTIFACTS_DIR"
         mkdir -p "$DEBUG_ARTIFACTS_DIR"
         
-        # Save to environment for later steps
         echo "CONFIG_FOLDER=$CONFIG_DIR" >> "$GITHUB_ENV"
         echo "ARTIFACTS_FOLDER=$ARTIFACTS_DIR" >> "$GITHUB_ENV"
         echo "KERNEL_PLATFORM_FOLDER=$KERNEL_PLATFORM_DIR" >> "$GITHUB_ENV"
@@ -473,7 +437,6 @@ runs:
     - name: Set Kernel build-tools to Path
       shell: bash
       run: |
-        # Set Kernel build-tools to Path
         set -euo pipefail
         echo "${KERNEL_PLATFORM_FOLDER}/prebuilts/kernel-build-tools/linux-x86/bin/" >> $GITHUB_PATH
         echo "${KERNEL_PLATFORM_FOLDER}/prebuilts/kernel-build-tools/linux_musl-x86/bin/" >> $GITHUB_PATH
@@ -552,14 +515,12 @@ runs:
     - name: Check or Detect Clang
       shell: bash
       run: |
-        # Check or Detect Clang
         set -euo pipefail
         echo "::group::Detect Clang"
         CLANG_FOUND=false
         CLANG_BIN=""
         
         if [ -n "$OP_ZYC_COMPILER" ]; then
-          # Priority 1: User explicitly wants ZyC compiler
           echo "OP_ZYC_COMPILER detected as download link: $OP_ZYC_COMPILER"
           
           ZYC_DIR="$CONFIG_FOLDER/compiler/zyc"
@@ -592,15 +553,11 @@ runs:
           done
         
           if [ "$download_success" = true ]; then
-            # Extract
             echo "Extracting to $ZYC_DIR ..."
             if tar -xzf "$TEMP_TAR" -C "$ZYC_DIR" 2>/dev/null; then
-              # Symlink extraction fix
               tar -xzf "$TEMP_TAR" -C "$ZYC_DIR" 2>/dev/null || true
-              # Cleanup
               rm -f "$TEMP_TAR"
               
-              # Verify clang exists
               if [ -x "$ZYC_DIR/bin/clang" ]; then
                   CLANG_BIN="$ZYC_DIR/bin"
                   CLANG_FOUND=true
@@ -616,7 +573,6 @@ runs:
           fi
         
         elif [ -n "$OP_C_COMPILER" ]; then
-          # Priority 2: User specified a custom C compiler
           if [ -x "$CONFIG_FOLDER/$OP_C_COMPILER/clang" ]; then
             CLANG_BIN="$CONFIG_FOLDER/$OP_C_COMPILER"
             CLANG_FOUND=true
@@ -626,7 +582,6 @@ runs:
         fi
         
         if [ "$CLANG_FOUND" = false ]; then
-          # Priority 3: Auto-detect from prebuilts (when both variables are empty / user clang not found)
           for base in "$KERNEL_PLATFORM_FOLDER/prebuilts" "$KERNEL_PLATFORM_FOLDER/prebuilts-master"; do
             [ -d "$base/clang/host/linux-x86" ] || continue
             latest=$(ls -d "$base/clang/host/linux-x86/clang-r"* 2>/dev/null | sort -V | tail -n1 || true)
@@ -639,7 +594,6 @@ runs:
         fi
         
         if [ "$CLANG_FOUND" = false ] && command -v clang >/dev/null 2>&1; then
-          # Priority 4: Fallback to system-installed clang
           CLANG_BIN="$(dirname "$(command -v clang)")"
           CLANG_FOUND=true
           echo "Using system clang."
@@ -674,7 +628,6 @@ runs:
       shell: bash
       if: ${{ env.OP_RUST_BUILD == 'true' }}
       run: |
-        # Check or Detect Rust & bindgen
         set -euo pipefail
         echo "::group::Detect Rust & bindgen"
         RUSTC_FOUND=false
@@ -740,13 +693,11 @@ runs:
       shell: bash
       if: ${{ env.OP_RUST_BUILD == 'true'  && !env.BINDGEN_BIN_PATH }}
       run: |
-        # Install bindgen via cargo (no full rustc needed)
         set -euo pipefail
         echo "::group::Install bindgen only (no rustc)"
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
         source $HOME/.cargo/env
         
-        # Install bindgen CLI only (~50-100MB total)
         cargo install bindgen-cli --version 0.69.5
         
         BINDGEN=$(which bindgen)
@@ -754,7 +705,6 @@ runs:
         echo "$BINDGEN_BIN" >> $GITHUB_PATH
         echo "BINDGEN=$BINDGEN" >> "$GITHUB_ENV"
         
-        # Verify
         bindgen --version
         echo "::endgroup::"
 
@@ -762,7 +712,6 @@ runs:
       shell: bash
       if: ${{ env.OP_RUST_BUILD == 'true' }}
       run: |
-        # Test Rust & bindgen
         set -euo pipefail
         echo "::group::Test Rust & bindgen"
         cd "$COMMON_KERNEL_FOLDER"
@@ -822,7 +771,6 @@ runs:
         
         ccache -z
         
-        # Setup and check LTO Cache
         if [ -d "$LDCACHE_DIR" ] && find "$LDCACHE_DIR" -type f -print -quit 2>/dev/null | grep -q .; then
           echo "✅ Restored LTO LD cache found"
           
@@ -842,10 +790,8 @@ runs:
         
         
         if [ "${{ env.OP_SUSFS }}" = true ]; then
-          # Determine SUSFS branch/commit to use
           SUSFS_INPUT="${{ inputs.susfs_commit_hash_or_branch }}"
           
-          # Default SUSFS branches for each kernel version
           declare -A DEFAULT_SUSFS=(
             ["android12-5.10"]="gki-android12-5.10"
             ["android13-5.15"]="gki-android13-5.15"
@@ -854,22 +800,16 @@ runs:
             ["android16-6.12"]="gki-android16-6.12"
           )
           
-          # Determine which SUSFS ref to use
           KERNEL_KEY="${{ env.ANDROID_VER }}-${{ env.KERNEL_VER }}"
           if [ -z "$SUSFS_INPUT" ]; then
-            # use kernel-specific default
             SUSFS_BRANCH="${DEFAULT_SUSFS[$KERNEL_KEY]:-gki-android15-6.6}"
             echo "ℹ️  Using default SUSFS branch for $KERNEL_KEY: $SUSFS_BRANCH"
           else
-            # 40-char hash or branch/commit passed directly
             SUSFS_BRANCH="$SUSFS_INPUT"
             echo "🔧 Using resolved SUSFS ref: $SUSFS_BRANCH"
           fi
         fi
         
-        # Fetch GitHub/GitLab repositories reliably.
-        # SUSFS is fetched with Git rather than GitLab's archive endpoint because
-        # exact SUSFS commit archive downloads can return HTTP 403.
         retry_fetch_git_ref() {
           local url="$1"
           local ref="$2"
@@ -935,8 +875,6 @@ runs:
         
         retry_clone "https://github.com/WildKernels/kernel_patches.git" "main" "1"
 
-        # Bouteillepleine kernel_patches is used for BBRv3 for all Android/kernel versions.
-        # It is also used for ADIOS patches when enable_adios=true.
         retry_clone "https://github.com/Bouteillepleine/kernel_patches.git" "main" "1" "bouton_kernel_patches"
 
         echo "BOUTEILLE_KERNEL_PATCHES_FOLDER=$GITHUB_WORKSPACE/bouton_kernel_patches" >> "$GITHUB_ENV"
@@ -1061,17 +999,12 @@ runs:
         echo "SukiSU version: $KSU_VERSION"
         echo "SukiSU commit:  $KSU_COMMIT_SHA"
 
-        # SukiSU Ultra reports its version via DKSU_VERSION in kernel/Makefile.
         if [ -f "$KERNEL_PLATFORM_FOLDER/KernelSU/kernel/Makefile" ]; then
           sed -i "s/DKSU_VERSION=[0-9]*/DKSU_VERSION=${KSU_VERSION}/" "$KERNEL_PLATFORM_FOLDER/KernelSU/kernel/Makefile" || true
         fi
 
-        # Brand the manager's "Kernel full version" string. SukiSU-Ultra does NOT read
-        # CONFIG_KSU_FULL_NAME_FORMAT (it's referenced nowhere in the source); the shown
-        # string is KSU_VERSION_FULL, built in kernel/Kbuild as v<tag>-<sha>@<branch>
-        # (@HEAD when pinned to a tag / detached checkout). Override it to a fixed brand.
         if [ -f "$KERNEL_PLATFORM_FOLDER/KernelSU/kernel/Kbuild" ]; then
-          sed -i 's#^KSU_VERSION_FULL :=.*#KSU_VERSION_FULL := v$(VERSION_TAG)-⚡Ultra⚡@SukiSU#' "$KERNEL_PLATFORM_FOLDER/KernelSU/kernel/Kbuild" || true
+          sed -i 's#^KSU_VERSION_FULL :=.*#KSU_VERSION_FULL := v$(VERSION_TAG)-Ghost💀#' "$KERNEL_PLATFORM_FOLDER/KernelSU/kernel/Kbuild" || true
         fi
 
         {
@@ -1104,8 +1037,6 @@ runs:
             echo "KPM: disabled"
           fi
           printf '%s\n' 'CONFIG_KSU_MULTI_MANAGER_SUPPORT=y'
-          # (CONFIG_KSU_FULL_NAME_FORMAT dropped — SukiSU-Ultra ignores it; the version
-          #  string is branded via KSU_VERSION_FULL in the Kbuild above.)
         } >> "$DEFCONFIG"
 
         {
@@ -1125,22 +1056,17 @@ runs:
         OP_HIDE_KSU_SUSFS_SYMBOLS: ${{ inputs.hide_ksu_susfs_symbols }}
       run: |
         set -euo pipefail
-        echo "::group::Apply SUSFS patches"
         SCRIPT="$GITHUB_WORKSPACE/configs/apply_susfs_patches.sh"
         [ -f "$SCRIPT" ] || { echo "::error::SUSFS apply script not found: $SCRIPT"; exit 1; }
         chmod +x "$SCRIPT"
 
-        # The helper natively supports SUSFS v2.1.0/v2.2.0/v2.3.0.
-        # OP13R/Linux 6.1 stat-hook compatibility is handled inside the helper,
-        # so the workflow no longer rewrites the helper at runtime.
         bash "$SCRIPT"
 
         echo "SUSFS_PATCH_APPLIED=true" >> "$GITHUB_ENV"
-        echo "::endgroup::"
 
     - name: Apply SukiSU SELinux Hide Implementation (OP13R)
       shell: bash
-      if: ${{ inputs.ksu_type == 'SUKISU' && env.OP_SUKISU_SELINUX_HIDE == 'true' }}
+      if: ${{ inputs.ksu_type == 'SUKISU' && env.OP_SELINUX_HIDE == 'true' }}
       env:
         ANDROID_VER_LOCAL: ${{ env.ANDROID_VER }}
         KERNEL_VER_LOCAL: ${{ env.KERNEL_VER }}
@@ -1157,6 +1083,7 @@ runs:
 
     - name: Apply NoMount (All Devices)
       shell: bash
+      if: ${{ env.OP_NOMOUNT == 'true' }}
       run: |
         set -euo pipefail
         echo "::group::Apply NoMount"
@@ -1174,8 +1101,6 @@ runs:
         set -euo pipefail
         echo "::group::Sanitize SukiSU v2.3.0 compatibility files"
 
-        # The OP13R stat prototype must stay inside the sucompat.h guard.
-        # The previous helper appended it after #endif, producing #endifint.
         python3 - <<'PY2'
         from pathlib import Path
         import os
@@ -1206,9 +1131,6 @@ runs:
             print(f'Normalized {h}')
         PY2
 
-        # SUSFS v2.3.0 removes the legacy app-profile init path. Some SukiSU
-        # revisions leave the old call in core/init.c, causing an implicit
-        # declaration error. Remove only that obsolete call.
         for f in \
           "$KERNEL_PLATFORM_FOLDER/KernelSU/kernel/core/init.c" \
           "$COMMON_KERNEL_FOLDER/drivers/kernelsu/core/init.c"; do
@@ -1305,11 +1227,6 @@ runs:
           esac
           FENGCHI_PATCH="$FENGCHI_DIR/fengchi_${HMBIRD_MODEL}_${OP_OS_VERSION}.patch"
           dos2unix "$FENGCHI_PATCH"
-          # The fengchi hunk that deletes OnePlus's CONFIG_SLIM_SCHED KABI block from task_struct
-          # (sched.h hunk #3) rejects on many trees — the block is absent, or present with divergent
-          # context (OP13/OP13T, 6.6.30, N30-SE). It is pure cleanup: HMBIRD (hunk #4) uses
-          # android_oem_data1 not KABI slots 1/2, and no fengchi hunk *adds* to slots 1/2 — so always
-          # drop that one hunk and leave SLIM_SCHED (stock) in place. Ref: Numbersf/SCHED_PATCH ca7c5c0.
           FENGCHI_PATCH_FIXED="$(mktemp)"
           awk '
             function flush(){ if (buf != "" && buf !~ /ANDROID_KABI_USE\(1, unsigned long sched_prop\)/) printf "%s", buf; buf="" }
@@ -1520,18 +1437,11 @@ runs:
           echo "Skipping debugfs/tunables patch for $ANDROID_VER-$KERNEL_VER"
         fi
 
-        # The BBRv3 backport calls proc_dou8vec_minmax() in sysctl_net_ipv4.c but
-        # never declares it - it does not touch include/linux/sysctl.h. The helper
-        # only landed upstream in 5.12, so on 5.10 trees that predate the stable
-        # backport the build dies with "use of undeclared identifier". Supply it,
-        # but only when genuinely absent: newer 5.10.y already carries it and the
-        # patch would fail as already-applied.
         if ! grep -qF 'int proc_dou8vec_minmax(' ./include/linux/sysctl.h; then
           echo "proc_dou8vec_minmax() missing from this tree - applying sysctl backports"
           for p in sysctl_add_proc_dou8vec_minmax.patch \
                    sysctl_fix_data-races_in_proc_dou8vec_minmax.patch; do
             if [ ! -f "$BBR3_DIR/$p" ]; then
-              # Fail here rather than 20 minutes later in a confusing compile error.
               echo "::error::BBRv3 needs $p but it is missing from $BBR3_DIR"
               echo "Without it, $ANDROID_VER-$KERNEL_VER cannot compile BBRv3."
               exit 1
@@ -1719,8 +1629,23 @@ runs:
         echo "Customize Kernel Branding"
         cd "$COMMON_KERNEL_FOLDER"
         mkdir -p out
-        CUSTOM_LOCALVERSION="-${ANDROID_VER}-${OP_UNAME}"
+        # Match the official Android GKI-style release string:
+        #   6.1.157-android14-11-o-g<12-char kernel source commit>
+        # Build the Git suffix explicitly. This is deterministic even when
+        # CONFIG_LOCALVERSION_AUTO cannot obtain Git metadata during the build.
+        KERNEL_GIT_HASH=$(git -C "$COMMON_KERNEL_FOLDER" rev-parse --short=12 HEAD 2>/dev/null || true)
+        if [[ ! "$KERNEL_GIT_HASH" =~ ^[0-9a-fA-F]{12}$ ]]; then
+          echo "::error::Could not determine the 12-character Git revision of the kernel source."
+          exit 1
+        fi
+
+        CUSTOM_LOCALVERSION="-${ANDROID_VER}-11-o-g${KERNEL_GIT_HASH}"
+        KERNEL_RELEASE="${TKERNEL_VER}${CUSTOM_LOCALVERSION}"
         echo "CUSTOM_LOCALVERSION=$CUSTOM_LOCALVERSION" >> "$GITHUB_ENV"
+        echo "KERNEL_GIT_HASH=$KERNEL_GIT_HASH" >> "$GITHUB_ENV"
+        echo "KERNEL_RELEASE=$KERNEL_RELEASE" >> "$GITHUB_ENV"
+        echo "KERNEL_FULL_VER=$KERNEL_RELEASE" >> "$GITHUB_ENV"
+        echo "Official-style kernel release: $KERNEL_RELEASE"
 
     - name: Disable GPUEB
       shell: bash
@@ -1737,7 +1662,6 @@ runs:
         echo "Disabling Vendor / Kernel Modules"
         cd "$COMMON_KERNEL_FOLDER"
 
-        # Define modules that MUST NEVER be blacklisted
         RISKY_MODULES=("coresight" "rust_binder" "msm_kgsl" "camera")
         
         declare -a modules=()
@@ -1746,12 +1670,10 @@ runs:
           [[ -n "$mod" ]] && modules+=("$mod")
         done
         
-        # Safety Validation Loop (Filter out risky modules)
         declare -a validated_modules=()
         for mod in "${modules[@]}"; do
           is_risky=false
           
-          # Check if current module matches any risky module
           for risky in "${RISKY_MODULES[@]}"; do
             if [ "$mod" = "$risky" ]; then
               is_risky=true
@@ -1760,7 +1682,6 @@ runs:
             fi
           done
           
-          # Only keep the module if it's safe
           if [ "$is_risky" = false ]; then
             validated_modules+=("$mod")
           fi
@@ -1973,12 +1894,10 @@ runs:
         
         make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" gki_defconfig
         
-        LOCAL_LOCALVERSION="${CUSTOM_LOCALVERSION:--OP-WILD}"
-        if [ -n "${LOCAL_LOCALVERSION:-}" ]; then
-          scripts/config --file "$OUT/.config" --set-str LOCALVERSION "${LOCAL_LOCALVERSION}"
-          scripts/config --file "$OUT/.config" -d LOCALVERSION_AUTO || true
-          sed -i 's/scm_version="$(scm_version --short)"/scm_version=""/' scripts/setlocalversion
-        fi
+        scripts/config --file "$OUT/.config" --set-str LOCALVERSION "${CUSTOM_LOCALVERSION}"
+        # The complete -g<hash> suffix is already embedded above; do not let
+        # the kernel build system append a second or missing Git suffix.
+        scripts/config --file "$OUT/.config" -d LOCALVERSION_AUTO
         
         if [ "${{ inputs.optimize_level }}" = "O3" ]; then
           scripts/config --file "$OUT/.config" -d CC_OPTIMIZE_FOR_PERFORMANCE -e CC_OPTIMIZE_FOR_PERFORMANCE_O3
@@ -2007,7 +1926,6 @@ runs:
         esac
         
         
-        # Strip KUnit test symbols that vendor defconfig may pull in
         disable_list=(
           CONFIG_REGMAP_KUNIT
           CONFIG_INPUT_KUNIT_TEST
@@ -2121,12 +2039,10 @@ runs:
         ccache -c
         
         echo "Perform ccache eviction!"
-        # 3h = 10800s using seconds to support older ccache
         ccache --evict-older-than 10800s
         
         echo "Perform LTO cache eviction!"
         if [ -d "$LDCACHE_DIR" ]; then
-          # Delete LTO cache files modified more than 180 minutes (3 hours) ago
           find "$LDCACHE_DIR" -type f -amin +180 -delete
           find "$LDCACHE_DIR" -type d -empty -delete
         fi
@@ -2194,12 +2110,6 @@ runs:
         fi
         
         if [ -f "$COMMON_KERNEL_FOLDER/build.log" ]; then
-          # Count only real (compiler) warnings. Exclude harmless config-processing noise:
-          #  - vendor Kconfig quirks (e.g. drivers/misc/mediatek/**/Kconfig: "ignoring
-          #    unsupported character", "no new line at end of file", type redefinitions)
-          #  - defconfig "override: reassigning to symbol X" (feature steps re-set an
-          #    existing symbol; the last value wins, nothing is broken).
-          # Both are emitted from *:Kconfig / *:defconfig, never from a real .c/.h compile.
           WARNINGS_COUNT="$(grep -iE '\bwarning:' "$COMMON_KERNEL_FOLDER/build.log" 2>/dev/null \
             | grep -cvE '(Kconfig|defconfig):[0-9]+:warning:' || true)"
           [ -n "$WARNINGS_COUNT" ] || WARNINGS_COUNT="0"
@@ -2260,8 +2170,6 @@ runs:
         mkdir -p "$AK3_FOLDER"
         MODULE_PATH="$AK3_FOLDER/$MODULE_NAME"
 
-        # `|| true` keeps a transient API failure (e.g. 503) on the warning
-        # path below instead of killing the step under set -e
         LATEST_RUN_ID="$(
           curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
             -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -2354,8 +2262,6 @@ runs:
         
         sed -i 's/do.check_boot_version=.*/do.check_boot_version=1/' anykernel.sh
         
-        # BBG efisp/abl whitelist flash control is baked into the AnyKernel3
-        # (Bouteillepleine/AnyKernel3 gki-2.0) — no build-time anykernel.sh patch needed.
         
         ZIP_MODEL=$(echo "$OP_MODEL" | sed 's/-[0-9]\+\.[0-9]\+\.[0-9]\+$//')
         if [ "${{ env.OP_SUSFS }}" = true ]; then
@@ -2398,7 +2304,6 @@ runs:
       run: |
         set -euo pipefail
         
-        # Get commit SHAs with fallback
         KSU_SHA="${KSU_COMMIT_SHA:-unknown}"
         SUSFS_SHA="${SUSFS_COMMIT_SHA:-unknown}"
         
@@ -2446,7 +2351,6 @@ runs:
           echo "Artifact Name: ${{ env.ZIP_NAME }}"
         } | tee summary.txt
         
-        # One-line header so the collapsed block is scannable across 100+ devices
         SUM_HEAD="🎯 <b>${{ env.OP_MODEL }}</b> — ${{ steps.save_metadata.outputs.kernel_version }}"
         SUM_HEAD="${SUM_HEAD} · ⚡SukiSU ${KSUVER:-?}"
         if [ "${{ env.OP_SUSFS }}" = true ]; then SUM_HEAD="${SUM_HEAD} · SUSFS ${SUSVER:-?}"; fi
@@ -2629,11 +2533,6 @@ runs:
           echo "Size before trim:"
           du -sh "$LDCACHE_DIR" || true
 
-          # Evict by access time, not mtime: ld.lld never updates a cache
-          # entry's mtime when it reuses it, so an mtime-based trim deletes the
-          # entire restored/reused cache on cache-hit builds — collapsing the
-          # saved archive to a few hundred bytes. atime tracks reuse and keeps
-          # the live working set.
           find "$LDCACHE_DIR" -type f -amin +360 -delete || true
           find "$LDCACHE_DIR" -type d -empty -delete     || true
 
