@@ -1,14 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# NoMount built-in integration for the OP13R Android 14 / Linux 6.1 kernel.
-# Uses the upstream NoMount kernel setup script and pins the known v2.0.0 release
-# so the kernel build is reproducible.
-
 COMMON_KERNEL_FOLDER="${COMMON_KERNEL_FOLDER:?COMMON_KERNEL_FOLDER is not set}"
-NOMOUNT_VERSION="${NOMOUNT_VERSION:-v2.0.0}"
-SETUP_URL="https://raw.githubusercontent.com/maxsteeel/nomount/${NOMOUNT_VERSION}/kernel/setup.sh"
-SETUP_SCRIPT="${RUNNER_TEMP:-/tmp}/nomount-setup-${NOMOUNT_VERSION//\//_}.sh"
+NOMOUNT_COMMIT="${NOMOUNT_COMMIT:-c7f63e3feb4125d591b6969a33aac04feb40f8ba}"
+SETUP_URL="https://raw.githubusercontent.com/maxsteeel/nomount/${NOMOUNT_COMMIT}/kernel/setup.sh"
+SETUP_SCRIPT="${RUNNER_TEMP:-/tmp}/nomount-setup-${NOMOUNT_COMMIT}.sh"
 DEFCONFIG="$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
 
 if [[ ! -d "$COMMON_KERNEL_FOLDER/fs" ]]; then
@@ -21,19 +17,14 @@ if [[ ! -f "$DEFCONFIG" ]]; then
   exit 1
 fi
 
-echo "Installing NoMount kernel integration: $NOMOUNT_VERSION"
-echo "Source: https://github.com/maxsteeel/nomount"
-
+echo "Installing NoMount kernel integration: $NOMOUNT_COMMIT"
 echo "Downloading upstream NoMount setup script..."
 curl -fL --retry 3 --retry-delay 2 -o "$SETUP_SCRIPT" "$SETUP_URL"
 chmod +x "$SETUP_SCRIPT"
 
 cd "$COMMON_KERNEL_FOLDER"
-sh "$SETUP_SCRIPT" "$NOMOUNT_VERSION"
+sh "$SETUP_SCRIPT" "$NOMOUNT_COMMIT"
 
-# Explicitly request built-in integration. NoMount's Kconfig defaults to y,
-# but keeping the symbol in the product defconfig makes the intended mode
-# unambiguous and prevents a later config merge from selecting m/n.
 sed -i '/^CONFIG_NOMOUNT=/d' "$DEFCONFIG"
 printf '%s\n' 'CONFIG_NOMOUNT=y' >> "$DEFCONFIG"
 
@@ -57,5 +48,5 @@ if ! grep -q '^CONFIG_NOMOUNT=y$' "$DEFCONFIG"; then
   exit 1
 fi
 
-echo "✅ NoMount $NOMOUNT_VERSION integrated as built-in (CONFIG_NOMOUNT=y)"
+echo "NoMount $NOMOUNT_COMMIT integrated as built-in (CONFIG_NOMOUNT=y)"
 echo "   fs/nomount: $(readlink -f "$COMMON_KERNEL_FOLDER/fs/nomount")"
